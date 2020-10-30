@@ -1,0 +1,182 @@
+---
+title: "Data analysis - Rodger Farr"
+author: "Maxwel C Oliveira"
+date: "`r Sys.Date()`"
+output:
+  prettydoc::html_pretty:
+    theme: cayman
+    highlight: github
+vignette: >
+  %\VignetteIndexEntry{Vignette Title}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, echo=FALSE, cache=FALSE}
+library(knitr)
+library(rmdformats)
+
+## Global options
+options(max.print = .Machine$integer.max)
+opts_chunk$set(echo=TRUE,
+               cache=TRUE,
+               fig.cap='center',
+               prompt=FALSE,
+               tidy=TRUE,
+               comment=NA,
+               message=FALSE,
+               warning=FALSE)
+opts_knit$set(width=300)
+```
+
+# Load packages
+
+```{r message=FALSE, ec}
+library(lme4)
+library(lmerTest)
+library(tidyverse)
+library(emmeans)
+library(kableExtra)
+```
+
+
+# Load data
+
+```{r message=FALSE}
+data <- read_csv("iwm.csv") %>% 
+  mutate(
+    year = as.factor(year),
+    trt = as.factor(trt)
+  ) %>% 
+  mutate_if(is_character, as_factor)
+```
+
+
+# Check your data
+
+```{r}
+glimpse(data) 
+```
+
+```{r}
+skimr::skim(data)
+```
+
+
+# Assumptions
+
+
+## Homogeneity of variances
+
+
+```{r}
+bartlett.test(yield ~ trt, data)
+```
+
+
+
+## Normality
+
+Testing and understanding normality is tricky. There are a lot of misunderstanding in the literature. I believe you should not worry much about it.
+
+```{r}
+data %>% 
+  ggplot(aes(x=yield)) +
+  geom_histogram(bins = 10)
+```
+
+```{r}
+library(ggridges)
+data %>% 
+  ggplot(
+    aes(y=as.factor(trt), x=yield, fill=as.factor(trt))) +
+      geom_density_ridges(scale=2, show.legend = FALSE)
+```
+
+# Summarising your data
+
+```{r}
+data %>%
+  group_by(hand.weed, plow, cover.crop, herb, year) %>% 
+  summarise(yield_mean = mean(yield), yield_sd = sd(yield), 
+            yield_min = min(yield), yield_max = max(yield)) %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+
+
+
+# Raw data visualization
+
+- Because you have several factors, I have used trts to look at your raw data visualization.
+
+- I am using trt and looking over the years. It seems that year play an important role in your study. I meant that there's no much difference among trts but you see a difference between years.
+
+
+
+```{r}
+data %>% 
+  ggplot(aes(x=as.factor(trt), y=yield, fill=year)) +
+  geom_bar(position = "dodge", stat="identity")
+```
+
+
+# Yield analysis
+
+## Model
+
+Split plot is a factorial design. I have never needed to adjust a a model to split plot, in your case you have so many. This is the approach I would recommend. I am not an expert in stats, the model that I have built it is the one I would go with your data. Maybe the random effects is wrong but it might be very close.
+
+```{r message=FALSE}
+fit <- lmer(yield ~ hand.weed * plow * cover.crop * herb * year  + (1|hand.weed:plow:cover.crop:herb) + (1|year:block), data, REML= FALSE)
+```
+
+
+## Anova
+
+```{r max.print=100000}
+anova(fit)
+```
+
+## Least square means
+
+### Three-way interaction
+
+- hand.weed:plow:year
+
+```{r}
+lsmeans_1 <- emmeans(fit, ~ hand.weed * plow | year, cont="pairwise", adjust="none", alpha=0.05)
+lsmeans_1 # note that | make the hand.weed * plow comparisons within year (2 sets of comparisons) - You can play with | or *
+```
+
+### Compact letter display
+
+
+```{r}
+CLD(lsmeans_1$emmeans, alpha=0.05, Letters=letters, adjust="none", reversed = TRUE) %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+
+
+
+## Two-way interaction
+
+- herb:year 
+
+```{r warning=FALSE}
+lsmeans_2 <- emmeans(fit, ~ herb * year, cont="pairwise", adjust="none", alpha=0.05)
+lsmeans_2
+```
+
+### Compact letter display
+
+
+```{r}
+CLD(lsmeans_2$emmeans, alpha=0.05, Letters=letters, adjust="none", reversed = TRUE) %>%
+  kbl() %>%
+  kable_classic_2(full_width = F)
+```
+
+
+## Finish the other interactions
